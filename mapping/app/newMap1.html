@@ -1,0 +1,485 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaflet Map with Inputs and Markers</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <style>
+        #map {
+            height: 925px;
+        }
+
+        #form-container {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="form-container">
+        <label for="start">Start Location:</label>
+        <input type="text" id="start" placeholder="Enter start location">
+
+        <label for="end">End Location:</label>
+        <input type="text" id="end" placeholder="Enter end location">
+
+        <button onclick="submitLocations()">Submit</button>
+        <button onclick="getCurrentLocation()">Get Current Location</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script>
+        function generateUUID() {
+            return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+                var r = (Math.random() * 16) | 0,
+                    v = c === "x" ? r : (r & 0x3) | 0x8;
+                return v.toString(16);
+            });
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            var mymap = L.map("map", {
+                maxZoom: 18,
+            }).setView([12.964508505099051, 77.71364106957832], 25);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: "© OpenStreetMap contributors",
+            }).addTo(mymap);
+
+            var searchControl = L.Control.geocoder({
+                defaultMarkGeocode: false,
+                collapsed: true,
+                placeholder: "Search for places..."
+            }).addTo(mymap);
+
+            searchControl.on("markgeocode", function (event) {
+                var latlng = event.geocode.center;
+                mymap.setView(latlng, 15);
+
+                var circle = L.circle(latlng, {
+                    color: 'green',
+                    fillColor: 'blue',
+                    fillOpacity: 0.25,
+                    radius: 5000
+                }).addTo(mymap);
+            });
+
+            var satelliteLayer = L.tileLayer(
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                {
+                    attribution: "© Esri",
+                }
+            );
+
+            var baseLayers = {
+                Map: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution: "© OpenStreetMap contributors",
+                }),
+                Satellite: satelliteLayer
+            };
+
+            L.control.layers(baseLayers).addTo(mymap);
+
+            window.submitLocations = function () {
+                var startpoint = document.getElementById("start").value;
+                var endpoint = document.getElementById("end").value;
+                const map_id = generateUUID();
+
+                var data = {
+                    id: map_id,
+                    startpoint: startpoint,
+                    endpoint: endpoint,
+                };
+
+                fetch("/odata/v4/coordinate/coordinates", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(data),
+                })
+                    .then((response) => response.json())
+                    .then((result) => {
+                        console.log("Data saved successfully:", result);
+
+                        var length = calculateDistance(data.startpoint, data.endpoint);
+                        var dataa = {
+                            id: generateUUID(),
+                            length: length,
+                            coordinate_id: map_id
+                        };
+
+                        fetch("/odata/v4/polyline/getinfo", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify(dataa),
+                        }).then((response) => response.json())
+                            .then((result) => {
+                                console.log("Data saved successfully:", result);
+                            });
+
+                        fetchAndDrawPolylines();
+                    })
+                    .catch((error) => {
+                        console.error("Error:", error);
+                    });
+            };
+
+            function calculateDistance(startpoint, endpoint) {
+                const [lat1, lon1] = startpoint.split(",").map(Number);
+                const [lat2, lon2] = endpoint.split(",").map(Number);
+
+                const R = 6371;
+                const dLat = (lat2 - lat1) * (Math.PI / 180);
+                const dLon = (lon2 - lon1) * (Math.PI / 180);
+
+                const a =
+                    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                const distance = R * c * 1000;
+                return distance;
+            }
+
+            function fetchAndDrawPolylines() {
+                mymap.eachLayer((layer) => {
+                    if (layer instanceof L.Polyline || layer instanceof L.Marker) {
+                        mymap.removeLayer(layer);
+                    }
+                });
+
+                fetch("/odata/v4/coordinate/coordinates")
+                    .then((response) => response.json())
+                    .then((data) => {
+                        var greenIcon = new L.Icon({
+                            iconUrl: "https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png",
+                            shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.0.0/images/marker-shadow.png",
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowSize: [41, 41],
+                        });
+
+                        var redIcon = new L.Icon({
+                            iconUrl: "https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
+                            shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.0.0/images/marker-shadow.png",
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowSize: [41, 41],
+                        });
+
+                        data.value.forEach((coordinate) => {
+                            var startpoint = coordinate.startpoint.split(",").map(Number);
+                            var endpoint = coordinate.endpoint.split(",").map(Number);
+
+                            var startMarker = L.marker(startpoint, {
+                                icon: greenIcon,
+                            }).addTo(mymap);
+
+                            var endMarker = L.marker(endpoint, { icon: redIcon }).addTo(mymap);
+
+                            var polyline = L.polyline([startpoint, endpoint], {
+                                color: "blue",
+                            }).addTo(mymap);
+
+                            polyline.addEventListener("click", function () {
+                                fetch("/odata/v4/polyline/getinfo")
+                                    .then((response) => response.json())
+                                    .then((data) => {
+                                        data.value.forEach((point) => {
+                                            if (point.coordinate_id === coordinate.id) {
+                                                polyline.bindPopup(
+                                                    `<b>Pipe Info</b>Name: ${point.name}<br>Length: ${point.length}<br>Coordinate ID: ${point.coordinate_id}`
+                                                );
+                                            }
+                                        });
+                                    });
+                            });
+                        });
+                    })
+                    .catch((error) => {
+                        console.error("Error fetching data:", error);
+                    });
+            }
+
+            window.getCurrentLocation = function () {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        function (position) {
+                            var latlng = [position.coords.latitude, position.coords.longitude];
+                            mymap.setView(latlng, 15);
+                            var customIcon = new L.Icon({
+                                iconUrl: 'https://cdn4.iconfinder.com/data/icons/proglyphs-traveling/512/Current_Location-512.png',
+                                iconSize: [64, 64],
+                                iconAnchor: [16, 32],
+                                popupAnchor: [0, -32],
+                            });
+                            L.marker(latlng, { icon: customIcon }).addTo(mymap);
+                        },
+                        function (error) {
+                            console.error("Error getting location:", error);
+                        }
+                    );
+                } else {
+                    alert("Geolocation is not supported by this browser.");
+                }
+            };
+
+            fetchAndDrawPolylines();
+        });
+    </script>
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapbox GL Map with Inputs and Markers</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.68/pdfmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.68/vfs_fonts.js"></script>
+
+    <style>
+        #map {
+            height: 935px;
+        }
+
+        #form-container {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="form-container">
+        <label for="start">Start Location:</label>
+        <input type="text" id="start" placeholder="Enter start location">
+
+        <label for="end">End Location:</label>
+        <input type="text" id="end" placeholder="Enter end location">
+
+        <button onclick="submitLocations()">Submit</button>
+        <button onclick="getCurrentLocation()">Get Current Location</button>
+        
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.js"></script>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYW1peWFwcmFkaGFuIiwiYSI6ImNsc3NobzAyMDBmcXUybm1sYWR4bzUwcncifQ.zZ3B3cMuyrLQtRICC-rwUw'; // Replace with your Mapbox access token
+
+        function generateUUID() {
+            return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+                var r = (Math.random() * 16) | 0,
+                    v = c === "x" ? r : (r & 0x3) | 0x8;
+                return v.toString(16);
+            });
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            var map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/mapbox/streets-v11',
+                center: [77.71364106957832, 12.964508505099051],
+                zoom: 12
+            });
+            map.addControl(new mapboxgl.NavigationControl());
+        
+            window.submitLocations = function () {
+                var startpoint = document.getElementById("start").value;
+                var endpoint = document.getElementById("end").value;
+                const map_id = generateUUID();
+
+                var data = {
+                    id: map_id,
+                    startpoint: startpoint,
+                    endpoint: endpoint,
+                };
+
+                fetch("/odata/v4/coordinate/coordinates", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(data),
+                })
+                    .then((response) => response.json())
+                    .then((result) => {
+                        console.log("Data saved successfully:", result);
+
+                        var length = calculateDistance(data.startpoint, data.endpoint);
+                        var dataa = {
+                            id: generateUUID(),
+                            length: length,
+                            coordinate_id: map_id
+                        };
+
+                        fetch("/odata/v4/polyline/getinfo", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify(dataa),
+                        }).then((response) => response.json())
+                            .then((result) => {
+                                console.log("Data saved successfully:", result);
+                            });
+
+                        fetchAndDrawPolylines();
+                    })
+                    .catch((error) => {
+                        console.error("Error:", error);
+                    });
+            };
+
+            function calculateDistance(startpoint, endpoint) {
+                const [lat1, lon1] = startpoint.split(",").map(Number);
+                const [lat2, lon2] = endpoint.split(",").map(Number);
+
+                const R = 6371;
+                const dLat = (lat2 - lat1) * (Math.PI / 180);
+                const dLon = (lon2 - lon1) * (Math.PI / 180);
+
+                const a =
+                    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                const distance = R * c * 1000;
+                return distance;
+            }
+
+            function fetchAndDrawPolylines() {
+    if (map.getSource('coordinates')) {
+        map.removeLayer('polylines');
+        map.removeSource('coordinates');
+    }
+
+    fetch("/odata/v4/coordinate/coordinates")
+        .then((response) => response.json())
+        .then((data) => {
+            map.addSource('coordinates', {
+                'type': 'geojson',
+                'data': {
+                    'type': 'FeatureCollection',
+                    'features': []
+                }
+            });
+
+            var features = [];  // Accumulate features in this array
+
+            data.value.forEach((coordinate) => {
+                var startpoint = coordinate.startpoint.split(",").reverse().map(Number);
+                var endpoint = coordinate.endpoint.split(",").reverse().map(Number);
+
+                features.push({
+                    'type': 'Feature',
+                    'geometry': {
+                        'type': 'LineString',
+                        'coordinates': [startpoint, endpoint]
+                    },
+                    'properties': {
+                        'id': coordinate.id  // Add id property to the feature
+                    }
+                });
+            });
+
+            map.getSource('coordinates').setData({
+                'type': 'FeatureCollection',
+                'features': features
+            });
+
+            map.addLayer({
+                'id': 'polylines',
+                'type': 'line',
+                'source': 'coordinates',
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                'paint': {
+                    'line-color': 'blue',
+                    'line-width': 2
+                }
+            });
+
+            map.on('click', 'polylines', function (e) {
+                var feature = e.features[0];
+
+                // Access the properties of the clicked feature
+                var coordinateId = feature.properties.id;
+
+                // Fetch polyline information based on the coordinateId
+                fetch(`/odata/v4/polyline/getinfo?coordinateId=${coordinateId}`)
+                    .then((response) => response.json())
+                    .then((data) => {
+                        var popupContent = '';
+
+                        data.value.forEach((point) => {
+                            // Corrected the condition and added the correct variable 'coordinateId'
+                            if (point.coordinate_id === coordinateId) {
+                                popupContent += `<b>Pipe Info</b>Name: ${point.name}<br>
+                                    Length: ${point.length}<br>Coordinate ID: ${point.coordinate_id}<br>`;
+                            }
+                        });
+
+                        // Create a popup and set its HTML content
+                        new mapboxgl.Popup()
+                            .setLngLat(e.lngLat)
+                            .setHTML(popupContent)
+                            .addTo(map);
+                    })
+                    .catch((error) => {
+                        console.error("Error fetching polyline info:", error);
+                        console.error
+                    });
+            });
+        })
+        .catch((error) => {
+            console.error("Error fetching data:", error);
+        });
+}
+
+
+            window.getCurrentLocation = function () {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        function (position) {
+                            var latlng = [position.coords.longitude, position.coords.latitude];
+                            console.log(latlng);
+                            map.setCenter(latlng);
+                            var customIcon = new mapboxgl.Marker({
+                                color: 'red'
+                            }).setLngLat(latlng).addTo(map);
+                        },
+                        function (error) {
+                            console.error("Error getting location:", error);
+                        }
+                    );
+                } else {
+                    alert("Geolocation is not supported by this browser.");
+                }
+            };
+
+            fetchAndDrawPolylines();
+        });
+    </script>
+</body>
+
+</html>
